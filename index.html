@@ -240,8 +240,58 @@
   .nav-btn.active { background: var(--panel-hi); color: var(--lime); }
   .nav-btn .ic { font-size: 1.05em; }
 </style>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+const cfg = { apiKey:"AIzaSyAyT3wRMvkB_J6DPDH234BLRYJI8n8s3hg", authDomain:"workouttracker-17830.firebaseapp.com", projectId:"workouttracker-17830", storageBucket:"workouttracker-17830.firebasestorage.app", messagingSenderId:"792113873446", appId:"1:792113873446:web:1cc623862b04d130addce7" };
+const app = initializeApp(cfg); const db = getFirestore(app); const auth = getAuth(app);
+let uid = null;
+const _origSet = localStorage.setItem.bind(localStorage);
+let _t;
+function pushAll(){
+  if(!uid) return;
+  clearTimeout(_t);
+  _t = setTimeout(async () => {
+    const blob = {};
+    for (let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k.indexOf('pushups_')===0) blob[k]=localStorage.getItem(k); }
+    try { await setDoc(doc(db,'users/'+uid+'/data','pushups'), {value: JSON.stringify(blob)}); } catch(e){}
+  }, 600);
+}
+localStorage.setItem = function(k,v){ _origSet(k,v); if(String(k).indexOf('pushups_')===0) pushAll(); };
+window.pushLogin = async () => { try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch(e){ const el=document.getElementById('pushLoginErr'); if(el) el.textContent='Sign in failed: '+(e.code||e.message); } };
+window.pushLogout = async () => { await signOut(auth); sessionStorage.removeItem('_pushPulled'); location.reload(); };
+onAuthStateChanged(auth, async user => {
+  const ov = document.getElementById('pushLogin');
+  if (user){
+    uid = user.uid; if (ov) ov.style.display = 'none';
+    if (!sessionStorage.getItem('_pushPulled')){
+      try {
+        const snap = await getDoc(doc(db,'users/'+uid+'/data','pushups'));
+        sessionStorage.setItem('_pushPulled','1');
+        if (snap.exists()){
+          const data = JSON.parse(snap.data().value || '{}'); let changed=false;
+          for (const k in data){ if(localStorage.getItem(k)!==data[k]){ _origSet(k,data[k]); changed=true; } }
+          if (changed) location.reload();
+        }
+      } catch(e){ sessionStorage.setItem('_pushPulled','1'); }
+    }
+  } else {
+    uid = null; if (ov) ov.style.display = 'flex';
+  }
+});
+</script>
 </head>
 <body>
+<div id="pushLogin" style="display:none;position:fixed;inset:0;z-index:99999;background:#0b0b0d;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-family:system-ui,-apple-system,sans-serif;padding:24px;">
+  <div style="font-size:24px;font-weight:800;color:#fff;">Push-Up Tracker</div>
+  <div style="color:#8a8a92;font-size:14px;text-align:center;max-width:320px;line-height:1.5;">Sign in to sync your push-ups across your phone and JARVIS.</div>
+  <button onclick="pushLogin()" style="background:#fff;color:#111;border:none;border-radius:12px;padding:14px 24px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:10px;">
+    <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#4285F4" d="M45 24c0-1.6-.1-3.1-.4-4.6H24v9.3h11.8c-.5 2.7-2 5-4.4 6.6v5.5h7.1C42.7 37 45 31 45 24z"/><path fill="#34A853" d="M24 46c6 0 11-2 14.7-5.4l-7.1-5.5c-2 1.3-4.5 2.1-7.6 2.1-5.8 0-10.8-3.9-12.5-9.2H4.1v5.7C7.8 41 15.3 46 24 46z"/><path fill="#FBBC05" d="M11.5 27.9c-.5-1.3-.7-2.7-.7-4.1s.3-2.8.7-4.1v-5.7H4.1C2.7 16.9 2 20.3 2 23.8s.7 6.9 2.1 9.8l7.4-5.7z"/><path fill="#EA4335" d="M24 10.7c3.2 0 6.1 1.1 8.4 3.3l6.3-6.3C34.9 4.1 30 2 24 2 15.3 2 7.8 7 4.1 14l7.4 5.7C13.2 14.6 18.2 10.7 24 10.7z"/></svg>
+    Continue with Google
+  </button>
+  <div id="pushLoginErr" style="color:#ff6b6b;font-size:12px;"></div>
+</div>
 <div class="app">
   <header>
     <div>
