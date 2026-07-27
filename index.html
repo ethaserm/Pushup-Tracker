@@ -294,6 +294,21 @@
   }
   .nav-btn.active { background: var(--panel-hi); color: var(--text); box-shadow: var(--inset); }
 
+  /* Exercise switcher */
+  .ex-tabs {
+    display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 13px; padding: 4px; margin-bottom: 20px; box-shadow: var(--inset);
+  }
+  .ex-tab {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    border: none; background: none; color: var(--muted-dim); cursor: pointer;
+    padding: 9px 8px; border-radius: 10px; transition: all 0.2s;
+  }
+  .ex-tab .lbl { font-size: 0.76em; font-weight: 600; letter-spacing: 0.02em; }
+  .ex-tab .cnt { font-size: 0.95em; font-weight: 700; letter-spacing: -0.01em; }
+  .ex-tab.active { background: var(--panel-hi); color: var(--text); box-shadow: var(--inset); }
+  .ex-tab.active .lbl { color: var(--muted); }
+
   /* Text action row */
   .row-actions { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 18px; }
   .linkbtn { background: none; border: none; color: var(--faint); cursor: pointer; font-size: 0.78em; font-weight: 500; padding: 2px 0; }
@@ -355,6 +370,11 @@
     <div class="flame"><span class="n" id="flameNum">0</span><span class="cap">Day streak</span></div>
   </header>
 
+  <div class="ex-tabs" id="exTabs">
+    <button class="ex-tab active" data-ex="pushups"><span class="cnt" id="cnt-pushups">0</span><span class="lbl">Pushups</span></button>
+    <button class="ex-tab" data-ex="dips"><span class="cnt" id="cnt-dips">0</span><span class="lbl">Dips</span></button>
+  </div>
+
   <!-- TODAY -->
   <div class="panel active" id="panel-today">
     <div class="ring-wrap">
@@ -386,11 +406,7 @@
       <button class="btn-round" id="minus" aria-label="Remove one rep">−</button>
       <button class="btn-round btn-plus" id="plus" aria-label="Add one rep">+</button>
     </div>
-    <div class="quick">
-      <button data-add="5">+5</button>
-      <button data-add="10">+10</button>
-      <button data-add="25">+25</button>
-    </div>
+    <div class="quick" id="quick"></div>
     <div class="row-actions">
       <button class="linkbtn" id="undo" style="display:none;">Undo last</button>
       <span class="divider" id="undoDiv" style="display:none;"></span>
@@ -439,7 +455,7 @@
 
     <div class="sec">All time <span class="meta" id="secMeta"></span></div>
     <div class="cards">
-      <div class="mini"><div class="l">Total pushups</div><div class="n" id="statTotal">0</div><div class="sub" id="statTotalSub"></div></div>
+      <div class="mini"><div class="l" id="lblTotal">Total reps</div><div class="n" id="statTotal">0</div><div class="sub" id="statTotalSub"></div></div>
       <div class="mini"><div class="l">Best day</div><div class="n" id="statBest">0</div><div class="sub" id="statBestSub"></div></div>
       <div class="mini"><div class="l">Daily average</div><div class="n" id="statAvg">0</div><div class="sub" id="statAvgSub"></div></div>
       <div class="mini"><div class="l">Goal hit rate</div><div class="n" id="statRate">0%</div><div class="sub" id="statRateSub"></div></div>
@@ -447,6 +463,12 @@
       <div class="mini"><div class="l">Longest streak</div><div class="n" id="statBestStreak">0</div><div class="sub" id="statBestStreakSub"></div></div>
     </div>
     <div class="empty" id="statsEmpty" style="display:none;">No reps logged yet. Add your first set to start tracking.</div>
+
+    <div class="sec">Combined <span class="meta">all exercises</span></div>
+    <div class="cards">
+      <div class="mini"><div class="l">Total reps</div><div class="n" id="allTotal">0</div><div class="sub" id="allTotalSub"></div></div>
+      <div class="mini"><div class="l">Today</div><div class="n" id="allToday">0</div><div class="sub" id="allTodaySub"></div></div>
+    </div>
 
     <div class="sec">Data</div>
     <div class="data-row">
@@ -466,24 +488,34 @@
   </div>
 </div>
 <script>
-const PREFIX = 'pushups_';
+/* ---- Exercises ---- */
+const EXERCISES = {
+  pushups: { label: 'Pushups', prefix: 'pushups_', defGoal: 50, quick: [5, 10, 25] },
+  dips:    { label: 'Dips',    prefix: 'dips_',    defGoal: 30, quick: [3, 5, 10] }
+};
+const EX_IDS = Object.keys(EXERCISES);
+const UI_EX = 'pushday_ex';
+let EX = EXERCISES[localStorage.getItem(UI_EX)] ? localStorage.getItem(UI_EX) : 'pushups';
+
 const DK_RE = /^\d{4}-\d{2}-\d{2}$/;
 const R = 104;
 const CIRC = 2 * Math.PI * R;
-let GOAL = parseInt(localStorage.getItem(PREFIX + 'goal') || '50', 10);
 let RANGE = 'week';
 const DAY_INITIALS = ['S','M','T','W','T','F','S'];
 const REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = id => document.getElementById(id);
 
+function P(ex) { return EXERCISES[ex || EX].prefix; }
+function label(ex) { return EXERCISES[ex || EX].label; }
+
 function dayKey(d) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 let today = dayKey(new Date());
-let key = PREFIX + today;
 
 function get(k) { return parseInt(localStorage.getItem(k) || '0', 10); }
 function set(k, v) { localStorage.setItem(k, Math.max(0, v)); }
+function repsOn(dk, ex) { return get(P(ex) + dk); }
 function fmt(n) { return n.toLocaleString(); }
 function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
 function prettyDate(dk, opts) {
@@ -507,66 +539,74 @@ function dayOfYear(d) {
   return Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(d.getFullYear(), 0, 0)) / 86400000);
 }
 
-/* ---- Goal snapshots: each day remembers the goal that applied to it ---- */
-function goalFor(dk) {
-  const v = parseInt(localStorage.getItem(PREFIX + 'dg_' + dk) || '0', 10);
-  return v > 0 ? v : GOAL;
+/* ---- Goals (per exercise, with per-day snapshots) ---- */
+function goalOf(ex) {
+  const v = parseInt(localStorage.getItem(P(ex) + 'goal') || '0', 10);
+  return v > 0 ? v : EXERCISES[ex || EX].defGoal;
 }
-function ensureDayGoal(dk) {
-  if (!localStorage.getItem(PREFIX + 'dg_' + dk)) localStorage.setItem(PREFIX + 'dg_' + dk, GOAL);
+let GOAL = goalOf(EX);
+function goalFor(dk, ex) {
+  const v = parseInt(localStorage.getItem(P(ex) + 'dg_' + dk) || '0', 10);
+  return v > 0 ? v : goalOf(ex);
+}
+function ensureDayGoal(dk, ex) {
+  const k = P(ex) + 'dg_' + dk;
+  if (!localStorage.getItem(k)) localStorage.setItem(k, goalOf(ex));
 }
 function setGoal(n) {
   GOAL = n;
-  localStorage.setItem(PREFIX + 'goal', n);
-  localStorage.setItem(PREFIX + 'dg_' + today, n); // today follows the new goal
+  localStorage.setItem(P() + 'goal', n);
+  localStorage.setItem(P() + 'dg_' + today, n);
 }
 
-/* ---- Undo stack ---- */
+/* ---- Undo (shared across exercises) ---- */
 function getUndo() {
-  try { const s = JSON.parse(localStorage.getItem(PREFIX + 'undo') || '[]'); return Array.isArray(s) ? s : []; }
+  try { const s = JSON.parse(localStorage.getItem('pushday_undo') || '[]'); return Array.isArray(s) ? s : []; }
   catch (e) { return []; }
 }
-function saveUndo(s) { localStorage.setItem(PREFIX + 'undo', JSON.stringify(s.slice(-40))); }
+function saveUndo(s) { localStorage.setItem('pushday_undo', JSON.stringify(s.slice(-40))); }
 function updateUndoUI() {
   const has = getUndo().length > 0;
   $('undo').style.display = has ? '' : 'none';
   $('undoDiv').style.display = has ? '' : 'none';
 }
 
-/* Every rep change goes through here so it can be undone */
-function applyDelta(dk, delta, record) {
-  const k = PREFIX + dk;
+function applyDelta(dk, delta, record, ex) {
+  const e = ex || EX;
+  const k = P(e) + dk;
   const cur = get(k);
   const next = Math.max(0, cur + delta);
   const actual = next - cur;
   if (actual === 0) return;
   set(k, next);
-  ensureDayGoal(dk);
+  ensureDayGoal(dk, e);
   if (record !== false) {
     const s = getUndo();
-    s.push({ k: dk, d: actual });
+    s.push({ x: e, k: dk, d: actual });
     saveUndo(s);
   }
 }
-function setDayValue(dk, val) {
-  applyDelta(dk, Math.max(0, val) - get(PREFIX + dk), true);
-}
+function setDayValue(dk, val) { applyDelta(dk, Math.max(0, val) - repsOn(dk), true); }
 function undoLast() {
   const s = getUndo();
   const e = s.pop();
   saveUndo(s);
-  if (e) applyDelta(e.k, -e.d, false);
-  renderCount();
+  if (e) {
+    const ex = EXERCISES[e.x] ? e.x : 'pushups'; // legacy entries had no exercise
+    applyDelta(e.k, -e.d, false, ex);
+    if (ex !== EX) switchEx(ex, true);
+  }
+  renderAll();
 }
 
 /* ---- Data ---- */
-function allDays() {
-  const map = {};
+function allDays(ex) {
+  const pre = P(ex), map = {};
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (!k || !k.startsWith(PREFIX)) continue;
-    const suffix = k.slice(PREFIX.length);
-    if (!DK_RE.test(suffix)) continue;   // skips goal, dg_*, undo
+    if (!k || !k.startsWith(pre)) continue;
+    const suffix = k.slice(pre.length);
+    if (!DK_RE.test(suffix)) continue;   // skips goal, dg_*, and other exercises
     const v = get(k);
     if (v > 0) map[suffix] = v;
   }
@@ -594,8 +634,7 @@ function daysTracked(map) {
   const keys = Object.keys(map).sort();
   if (!keys.length) return 0;
   const first = new Date(keys[0] + 'T00:00:00');
-  const now = new Date(today + 'T00:00:00');
-  return Math.round((now - first) / 86400000) + 1;
+  return Math.round((new Date(today + 'T00:00:00') - first) / 86400000) + 1;
 }
 
 /* ---- Decorative dial ---- */
@@ -622,6 +661,29 @@ document.querySelectorAll('.nav-btn').forEach(b => {
     if (b.dataset.tab === 'stats') renderStats();
   };
 });
+
+/* ---- Exercise switching ---- */
+function switchEx(ex, silent) {
+  if (!EXERCISES[ex]) return;
+  EX = ex;
+  GOAL = goalOf(EX);
+  localStorage.setItem(UI_EX, EX);
+  closeDayEdit();
+  renderQuick();
+  document.querySelectorAll('.ex-tab').forEach(t => t.classList.toggle('active', t.dataset.ex === EX));
+  if (!silent) renderAll();
+}
+document.querySelectorAll('.ex-tab').forEach(t => { t.onclick = () => switchEx(t.dataset.ex); });
+
+function renderQuick() {
+  $('quick').innerHTML = EXERCISES[EX].quick.map(n => `<button data-add="${n}">+${n}</button>`).join('');
+  document.querySelectorAll('#quick button').forEach(b => {
+    b.onclick = () => bump(parseInt(b.dataset.add, 10));
+  });
+}
+function renderExTabs() {
+  EX_IDS.forEach(id => { $('cnt-' + id).textContent = fmt(repsOn(today, id)); });
+}
 
 /* ---- Count-up animation ---- */
 let countAnim = null;
@@ -651,7 +713,7 @@ function updatePip(pct) {
 
 /* ---- Today ---- */
 function renderCount() {
-  const n = get(key);
+  const n = repsOn(today);
   const map = allDays();
   animateCount($('count'), n);
   $('goalTxt').textContent = GOAL;
@@ -673,7 +735,7 @@ function renderCount() {
   const yv = map[dayKey(y)] || 0;
   const sub = $('statusSub');
   if (n === 0 && yv === 0) {
-    sub.textContent = 'Nothing logged yet today';
+    sub.textContent = 'No ' + label().toLowerCase() + ' logged yet today';
   } else {
     const diff = n - yv;
     sub.textContent = diff === 0
@@ -683,10 +745,13 @@ function renderCount() {
 
   $('flameNum').textContent = computeStreak(map);
   renderStrip(map);
+  renderExTabs();
   updateUndoUI();
 
   const total = Object.values(map).reduce((a, b) => a + b, 0);
-  $('footnote').textContent = total > 0 ? fmt(total) + ' pushups logged all time' : 'Tracking starts with your first rep';
+  $('footnote').textContent = total > 0
+    ? fmt(total) + ' ' + label().toLowerCase() + ' logged all time'
+    : 'Tracking starts with your first rep';
 }
 
 function renderStrip(map) {
@@ -703,7 +768,7 @@ function renderStrip(map) {
   $('strip').innerHTML = days.map(d => {
     const h = Math.max(2, Math.round((d.val / scale) * 100));
     const cls = d.isNow ? 'now' : (d.val >= d.goal ? 'hit' : '');
-    return `<div class="strip-col" data-key="${d.k}" role="button" tabindex="0" title="Edit ${d.k}">
+    return `<div class="strip-col" data-key="${d.k}" role="button" tabindex="0">
       <div class="strip-track"><div class="strip-bar ${cls}" style="height:${h}%"></div></div>
       <div class="strip-lbl ${d.isNow ? 'now' : ''}">${d.label}</div>
       <div class="strip-date ${d.isNow ? 'now' : ''}">${d.date}</div>
@@ -715,8 +780,13 @@ function renderStrip(map) {
   });
 }
 
-/* ---- Add / remove, with press-and-hold ---- */
-function bump(delta) { applyDelta(today, delta, true); renderCount(); }
+function renderAll() {
+  renderCount();
+  if ($('panel-stats').classList.contains('active')) renderStats();
+}
+
+/* ---- Add / remove ---- */
+function bump(delta) { applyDelta(today, delta, true); renderAll(); }
 
 function attachHold(btn, fn) {
   let startTimer = null, repeatTimer = null, held = false;
@@ -744,13 +814,12 @@ function attachHold(btn, fn) {
 attachHold($('plus'), () => bump(1));
 attachHold($('minus'), () => bump(-1));
 
-document.querySelectorAll('.quick button').forEach(b => {
-  b.onclick = () => bump(parseInt(b.dataset.add, 10));
-});
 $('reset').onclick = () => {
-  const cur = get(key);
+  const cur = repsOn(today);
   if (cur === 0) return;
-  if (confirm('Reset today to 0? You can undo this.')) { applyDelta(today, -cur, true); renderCount(); }
+  if (confirm('Reset today\u2019s ' + label().toLowerCase() + ' to 0? You can undo this.')) {
+    applyDelta(today, -cur, true); renderAll();
+  }
 };
 $('undo').onclick = undoLast;
 
@@ -769,7 +838,7 @@ function closeGoalEdit(commit) {
   }
   goalInput.style.display = 'none';
   $('goalEdit').style.display = '';
-  renderCount();
+  renderAll();
 }
 goalInput.onblur = () => closeGoalEdit(true);
 goalInput.onkeydown = (e) => {
@@ -777,13 +846,13 @@ goalInput.onkeydown = (e) => {
   if (e.key === 'Escape') { e.preventDefault(); closeGoalEdit(false); }
 };
 
-/* ---- Backfill / edit any of the last 7 days ---- */
+/* ---- Backfill any of the last 7 days ---- */
 let editKey = null;
 function openDayEdit(dk) {
   editKey = dk;
   $('dayEdit').style.display = '';
-  $('deLabel').textContent = prettyDate(dk) + (dk === today ? ' · today' : '');
-  $('deInput').value = get(PREFIX + dk);
+  $('deLabel').textContent = label() + ' · ' + prettyDate(dk) + (dk === today ? ' · today' : '');
+  $('deInput').value = repsOn(dk);
   $('deHint').textContent = 'Goal that day: ' + fmt(goalFor(dk)) + ' · set the total reps for this day';
   $('deInput').focus(); $('deInput').select();
 }
@@ -795,36 +864,61 @@ $('deSave').onclick = () => {
   if (!isFinite(v) || v < 0) v = 0;
   setDayValue(editKey, v);
   closeDayEdit();
-  renderCount();
+  renderAll();
 };
 $('deInput').onkeydown = (e) => {
   if (e.key === 'Enter') { e.preventDefault(); $('deSave').click(); }
   if (e.key === 'Escape') { e.preventDefault(); closeDayEdit(); }
 };
 
-/* ---- Backup ---- */
+/* ---- Backup (all exercises) ---- */
 function note(msg, ok) {
   const el = $('dataNote');
   el.textContent = msg;
   el.className = 'data-note' + (ok ? ' ok' : '');
 }
 $('exportBtn').onclick = () => {
-  const days = allDays();
-  const dayGoals = {};
-  Object.keys(days).forEach(k => {
-    const g = localStorage.getItem(PREFIX + 'dg_' + k);
-    if (g) dayGoals[k] = parseInt(g, 10);
+  const exercises = {};
+  let dayCount = 0;
+  EX_IDS.forEach(id => {
+    const days = allDays(id);
+    const dayGoals = {};
+    Object.keys(days).forEach(k => {
+      const g = localStorage.getItem(P(id) + 'dg_' + k);
+      if (g) dayGoals[k] = parseInt(g, 10);
+    });
+    dayCount += Object.keys(days).length;
+    exercises[id] = { goal: goalOf(id), days, dayGoals };
   });
-  const payload = { app: 'pushday', version: 1, exportedAt: new Date().toISOString(), goal: GOAL, days, dayGoals };
+  const payload = { app: 'pushday', version: 2, exportedAt: new Date().toISOString(), exercises };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = 'pushday-backup-' + today + '.json';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  note('Backup downloaded (' + plural(Object.keys(days).length, 'day') + ').', true);
+  note('Backup downloaded (' + plural(dayCount, 'day record') + ').', true);
 };
 $('importBtn').onclick = () => $('importFile').click();
+
+function importExercise(id, obj) {
+  let n = 0;
+  if (!obj || typeof obj.days !== 'object' || obj.days === null) return 0;
+  Object.keys(obj.days).forEach(k => {
+    const v = Number(obj.days[k]);
+    if (DK_RE.test(k) && isFinite(v) && v >= 0) { set(P(id) + k, Math.round(v)); n++; }
+  });
+  if (obj.dayGoals && typeof obj.dayGoals === 'object') {
+    Object.keys(obj.dayGoals).forEach(k => {
+      const v = Number(obj.dayGoals[k]);
+      if (DK_RE.test(k) && isFinite(v) && v > 0) localStorage.setItem(P(id) + 'dg_' + k, Math.round(v));
+    });
+  }
+  const g = Number(obj.goal);
+  if (isFinite(g) && g > 0) localStorage.setItem(P(id) + 'goal', Math.round(g));
+  return n;
+}
+
 $('importFile').onchange = (e) => {
   const f = e.target.files && e.target.files[0];
   if (!f) return;
@@ -832,22 +926,17 @@ $('importFile').onchange = (e) => {
   reader.onload = () => {
     try {
       const d = JSON.parse(reader.result);
-      if (!d || typeof d.days !== 'object' || d.days === null) throw new Error('bad shape');
       let n = 0;
-      Object.keys(d.days).forEach(k => {
-        const v = Number(d.days[k]);
-        if (DK_RE.test(k) && isFinite(v) && v >= 0) { set(PREFIX + k, Math.round(v)); n++; }
-      });
-      if (d.dayGoals && typeof d.dayGoals === 'object') {
-        Object.keys(d.dayGoals).forEach(k => {
-          const v = Number(d.dayGoals[k]);
-          if (DK_RE.test(k) && isFinite(v) && v > 0) localStorage.setItem(PREFIX + 'dg_' + k, Math.round(v));
-        });
+      if (d && d.exercises && typeof d.exercises === 'object') {
+        EX_IDS.forEach(id => { n += importExercise(id, d.exercises[id]); });
+      } else if (d && typeof d.days === 'object' && d.days !== null) {
+        n = importExercise('pushups', d);  // version 1 backup: pushups only
+      } else {
+        throw new Error('bad shape');
       }
-      const g = Number(d.goal);
-      if (isFinite(g) && g > 0) { GOAL = Math.round(g); localStorage.setItem(PREFIX + 'goal', GOAL); }
-      localStorage.removeItem(PREFIX + 'undo');
-      note('Imported ' + plural(n, 'day') + '.', true);
+      localStorage.removeItem('pushday_undo');
+      GOAL = goalOf(EX);
+      note('Imported ' + plural(n, 'day record') + '.', true);
       renderCount(); renderStats();
     } catch (err) {
       note('That file could not be read as a Push Day backup.', false);
@@ -872,9 +961,9 @@ function renderStats() {
   const bestStreak = longestStreak(map);
 
   $('statsEmpty').style.display = activeDays ? 'none' : '';
-  $('secMeta').textContent = keys.length
-    ? 'since ' + prettyDate(keys[0], { month: 'short', day: 'numeric', year: 'numeric' })
-    : '';
+  $('lblTotal').textContent = 'Total ' + label().toLowerCase();
+  $('secMeta').textContent = label() + (keys.length
+    ? ' · since ' + prettyDate(keys[0], { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
   $('statTotal').textContent = fmt(total);
   $('statTotalSub').textContent = activeDays ? 'over ' + plural(activeDays, 'active day') : '—';
@@ -898,15 +987,31 @@ function renderStats() {
   $('statBestStreakSub').textContent = bestStreak && streak === bestStreak && streak > 0
     ? 'matching your best now' : (bestStreak ? 'personal record' : '—');
 
+  // Combined across exercises
+  let grand = 0, todayAll = 0;
+  const parts = [];
+  EX_IDS.forEach(id => {
+    const m = allDays(id);
+    const t = Object.values(m).reduce((a, b) => a + b, 0);
+    grand += t;
+    const tv = repsOn(today, id);
+    todayAll += tv;
+    if (tv > 0) parts.push(fmt(tv) + ' ' + EXERCISES[id].label.toLowerCase());
+  });
+  $('allTotal').textContent = fmt(grand);
+  $('allTotalSub').textContent = 'pushups + dips';
+  $('allToday').textContent = fmt(todayAll);
+  $('allTodaySub').textContent = parts.length ? parts.join(' · ') : 'nothing logged yet';
+
+  // Chart
   const bars = RANGE === 'week' ? weekBars(map) : monthBars(map);
   const refLine = RANGE === 'week' ? GOAL : GOAL * 7;
-  $('chartTitle').textContent = RANGE === 'week' ? 'Last 7 days' : 'Last 6 weeks';
+  $('chartTitle').textContent = (RANGE === 'week' ? 'Last 7 days' : 'Last 6 weeks') + ' · ' + label();
   const barTotal = bars.reduce((a, b) => a + b.val, 0);
   const unit = RANGE === 'week' ? '/day' : '/week';
   $('chartAvg').textContent = fmt(Math.round(barTotal / bars.length)) + unit + ' average · ' + fmt(barTotal) + ' total';
 
   const scale = niceMax(Math.max(refLine, ...bars.map(b => b.val)));
-
   const lines = [0, 0.5, 1].map(f => {
     const v = Math.round(scale * f);
     return `<div class="line" style="top:${(1 - f) * 100}%"><span class="lbl">${fmt(v)}</span></div>`;
@@ -972,30 +1077,28 @@ document.querySelectorAll('.range-toggle button').forEach(b => {
   };
 });
 
-/* ---- Midnight rollover: the day must not be frozen at page load ---- */
+/* ---- Midnight rollover ---- */
+function stampHeader(now) {
+  $('greeting').textContent = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening';
+  $('dateBig').textContent = now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  $('ebWeek').textContent = 'Week ' + isoWeek(now) + ' · Day ' + dayOfYear(now);
+}
 function refreshDay() {
   const t = dayKey(new Date());
   if (t === today) return;
   today = t;
-  key = PREFIX + today;
   closeDayEdit();
-  const now = new Date();
-  $('dateBig').textContent = now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
-  $('ebWeek').textContent = 'Week ' + isoWeek(now) + ' · Day ' + dayOfYear(now);
-  $('greeting').textContent = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening';
-  renderCount();
-  if ($('panel-stats').classList.contains('active')) renderStats();
+  stampHeader(new Date());
+  renderAll();
 }
 setInterval(refreshDay, 30000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshDay(); });
 window.addEventListener('focus', refreshDay);
 
 /* ---- Init ---- */
-const initNow = new Date();
-$('greeting').textContent = initNow.getHours() < 12 ? 'Good morning' : initNow.getHours() < 18 ? 'Good afternoon' : 'Good evening';
-$('dateBig').textContent = initNow.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
-$('ebWeek').textContent = 'Week ' + isoWeek(initNow) + ' · Day ' + dayOfYear(initNow);
-if (get(key) > 0) ensureDayGoal(today);
+stampHeader(new Date());
+switchEx(EX, true);
+EX_IDS.forEach(id => { if (repsOn(today, id) > 0) ensureDayGoal(today, id); });
 renderCount();
 </script>
 </body>
